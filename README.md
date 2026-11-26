@@ -43,6 +43,7 @@
 |     Pawchive      | <https://pawchive.pw/>, <https://pawchive.st/> |          |     ✔      |
 |     Telegraph     | <https://telegra.ph/>, <https://graph.org/> |          |     ✔      |
 |      Bluesky      |      <https://bsky.app/>       |          |     ✔      |
+|      Poipiku      |     <https://poipiku.com/>     |          |     ✔      |
 
 ### Supported Databases
 
