@@ -60,7 +60,12 @@ _Only common used ones are listed._
     "code": "Creator portfolio code",
     "name": "Creator display name",
     "profile": "Creator profile description",
-    "url": "Creator portfolio URL"
+    "url": "Creator portfolio URL",
+    "followers_num": "Number of followers",
+    "follow_status": {
+      "is_following": false,
+      "is_public": false
+    }
   },
   "tags": ["Tag 1", "Tag 2"],
   "series": {

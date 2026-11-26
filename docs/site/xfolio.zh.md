@@ -60,7 +60,12 @@ _此处只列出常用项。_
     "code": "创作者作品集代号 (creator code)",
     "name": "创作者显示名称",
     "profile": "创作者简介",
-    "url": "创作者作品集主页链接"
+    "url": "创作者作品集主页链接",
+    "followers_num": "粉丝数",
+    "follow_status": {
+      "is_following": false,
+      "is_public": false
+    }
   },
   "tags": ["标签 1", "标签 2"],
   "series": {

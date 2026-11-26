@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 from http import HTTPStatus
@@ -11,7 +12,12 @@ from nazurin.utils.decorators import network_retry
 from nazurin.utils.exceptions import NazurinError
 
 from . import config
-from .models import REFERER, XfolioIllust, XfolioImage, get_cookies
+from .models import XfolioIllust, XfolioImage, get_cookies
+
+REFERER = "https://xfolio.jp/"
+FULLSCALE_REFERER = (
+    "https://xfolio.jp/fullscale_image?image_id={image_id}&work_id={work_id}"
+)
 
 
 class Xfolio:
@@ -154,26 +160,7 @@ class Xfolio:
                 br.replace_with("\n")
             description = desc_el.get_text().strip()
 
-        creator_el = soup.select_one(".creator-info__mount") or soup.select_one(
-            ".button--follow__mount",
-        )
-        portfolio_url = f"https://xfolio.jp/portfolio/{creator}"
-        user = {
-            "id": creator_el.get("data-creator-id", "") if creator_el else "",
-            "user_id": creator_el.get("data-creator-user-id", "") if creator_el else "",
-            "code": creator,
-            "name": (
-                creator_el.get("data-creator-name") or creator
-                if creator_el
-                else creator
-            ),
-            "profile": creator_el.get("data-creator-profile", "") if creator_el else "",
-            "url": (
-                creator_el.get("data-creator-portfolio-top-url") or portfolio_url
-                if creator_el
-                else portfolio_url
-            ),
-        }
+        user = Xfolio.parse_user(soup, creator)
 
         like_el = detail.select_one(".button--detail_like__mount")
         fav_el = detail.select_one(".button--detail_favorite__mount")
@@ -224,6 +211,57 @@ class Xfolio:
         return post, csrf_token
 
     @staticmethod
+    def parse_user(soup: BeautifulSoup, creator: str) -> dict:
+        """Extract creator metadata from work page DOM."""
+        creator_el = soup.select_one(".creator-info__mount") or soup.select_one(
+            ".button--follow__mount",
+        )
+        portfolio_url = f"https://xfolio.jp/portfolio/{creator}"
+        default_follow_status = {"is_following": False, "is_public": False}
+        if not creator_el:
+            return {
+                "id": "",
+                "user_id": "",
+                "code": creator,
+                "name": creator,
+                "profile": "",
+                "url": portfolio_url,
+                "followers_num": 0,
+                "follow_status": default_follow_status,
+            }
+
+        follow_status = default_follow_status
+        raw_follow_status = creator_el.get("data-user-follow-status")
+        if raw_follow_status:
+            with contextlib.suppress(json.JSONDecodeError):
+                parsed_status = json.loads(raw_follow_status)
+                if isinstance(parsed_status, dict):
+                    follow_status = {
+                        "is_following": bool(parsed_status.get("is_following")),
+                        "is_public": bool(parsed_status.get("is_public")),
+                    }
+        elif (
+            "data-is-following" in creator_el.attrs
+            or "data-is-public" in creator_el.attrs
+        ):
+            truthy = {"1", "yes", "true"}
+            follow_status = {
+                "is_following": creator_el.get("data-is-following") in truthy,
+                "is_public": creator_el.get("data-is-public") in truthy,
+            }
+
+        return {
+            "id": creator_el.get("data-creator-id", ""),
+            "user_id": creator_el.get("data-creator-user-id", ""),
+            "code": creator,
+            "name": creator_el.get("data-creator-name") or creator,
+            "profile": creator_el.get("data-creator-profile", ""),
+            "url": creator_el.get("data-creator-portfolio-top-url") or portfolio_url,
+            "followers_num": int(creator_el.get("data-creator-followers-num") or 0),
+            "follow_status": follow_status,
+        }
+
+    @staticmethod
     def parse_images(soup: BeautifulSoup, work_id: int) -> list[dict]:
         """Extract preview and full-scale image URLs from work page DOM."""
         images: list[dict] = []
@@ -237,6 +275,7 @@ class Xfolio:
 
             fullscale_url = None
             image_id = None
+            referer = REFERER
             open_link = wrap.select_one('a.openIcon[href*="fullscale_image"]')
             if open_link and open_link.get("href"):
                 query = parse_qs(urlparse(open_link["href"]).query)
@@ -246,6 +285,10 @@ class Xfolio:
                         f"https://xfolio.jp/user_asset.php?id={image_id}"
                         f"&work_id={work_id}&work_image_id={image_id}&type=work_image"
                     )
+                    referer = FULLSCALE_REFERER.format(
+                        image_id=image_id,
+                        work_id=work_id,
+                    )
 
             images.append(
                 {
@@ -253,6 +296,7 @@ class Xfolio:
                     "thumbnail": preview_url if fullscale_url else None,
                     "filename": os.path.basename(urlparse(preview_url).path),
                     "image_id": image_id,
+                    "referer": referer,
                 },
             )
 
@@ -276,6 +320,7 @@ class Xfolio:
                     img["url"],
                     destination,
                     thumbnail=img.get("thumbnail"),
+                    referer=img.get("referer", REFERER),
                 ),
             )
         return imgs

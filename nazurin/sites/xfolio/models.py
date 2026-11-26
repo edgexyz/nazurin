@@ -1,17 +1,19 @@
 import os
 from dataclasses import dataclass
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import aiofiles.os
 import aiohttp
 from PIL import Image as PILImage
 
 from nazurin.models import Illust, Image
+from nazurin.utils import Request
 from nazurin.utils.decorators import async_wrap
 
 from . import config
 
-REFERER = "https://xfolio.jp/"
+if TYPE_CHECKING:
+    from nazurin.utils.network import NazurinRequestSession
 
 FORMAT_EXTENSIONS: ClassVar[dict[str, str]] = {
     "JPEG": ".jpg",
@@ -36,10 +38,27 @@ def detect_image_extension(path: str | os.PathLike) -> str | None:
         return None
 
 
+class XfolioRequest(Request):
+    def __init__(self, referers: dict[str, str] | None = None, **kwargs):
+        super().__init__(**kwargs)
+        self._referers = referers or {}
+
+    def get(self, url, **kwargs):
+        referer = self._referers.get(str(url))
+        if referer:
+            headers = {"Referer": referer, **(kwargs.get("headers") or {})}
+            kwargs["headers"] = headers
+        return super().get(url, **kwargs)
+
+
 @dataclass
 class XfolioImage(Image):
+    referer: str | None = None
+
     async def size(self, **kwargs):
-        headers = {"Referer": REFERER, **kwargs.pop("headers", {})}
+        headers = dict(kwargs.pop("headers", None) or {})
+        if self.referer:
+            headers.setdefault("Referer", self.referer)
         cookies = {**get_cookies(), **(kwargs.pop("cookies", None) or {})}
         return await super().size(headers=headers, cookies=cookies, **kwargs)
 
@@ -56,7 +75,22 @@ class XfolioImage(Image):
 
 @dataclass
 class XfolioIllust(Illust):
-    async def download(self, **kwargs):
-        headers = {"Referer": REFERER, **kwargs.pop("headers", {})}
+    async def download(
+        self,
+        *,
+        request_class: "type[NazurinRequestSession]" = XfolioRequest,
+        **kwargs,
+    ):
         cookies = {**get_cookies(), **(kwargs.pop("cookies", None) or {})}
-        await super().download(headers=headers, cookies=cookies, **kwargs)
+        if issubclass(request_class, XfolioRequest):
+            referers = {
+                file.url: file.referer
+                for file in self.all_files
+                if isinstance(file, XfolioImage) and file.url and file.referer
+            }
+            kwargs.setdefault("referers", referers)
+        await super().download(
+            request_class=request_class,
+            cookies=cookies,
+            **kwargs,
+        )
